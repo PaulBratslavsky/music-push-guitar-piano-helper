@@ -20,7 +20,7 @@ import {
   type Enharmonic,
   type KeyMode,
 } from '../theory/circle-of-fifths';
-import { PITCH_CLASSES, type PitchClass } from '../types';
+import { PITCH_CLASSES } from '../types';
 import { midiFromPitchOctave } from '../theory/notes';
 import { getChordPitchClasses, stackAscending } from '../theory/chords';
 import { synth } from '../audio/synth';
