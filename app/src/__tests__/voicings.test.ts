@@ -18,8 +18,6 @@ const sel = (
 // ---------------------------------------------------------------------------
 
 describe('power chord voicings', () => {
-  const STRING_NAMES = ['high E', 'B', 'G', 'D', 'A', 'low E'];
-
   const checkPowerChord = (root: PitchClass, expectedFifth: PitchClass) => {
     let v = guitarVoicing(sel(root, '5', 0));
     let i = 0;
