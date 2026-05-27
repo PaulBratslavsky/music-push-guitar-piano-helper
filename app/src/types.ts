@@ -12,6 +12,8 @@ export type Note = {
 };
 
 export type ChordQuality =
+  // Power chord (root + 5th only, no 3rd)
+  | '5'
   // Triads
   | 'maj' | 'min' | 'dim' | 'aug' | 'sus2' | 'sus4'
   // Sixths
@@ -28,6 +30,7 @@ export type ChordQuality =
   | '7b5' | '7#5' | '7b9' | '7#9' | 'alt';
 
 export const CHORD_QUALITIES: ChordQuality[] = [
+  '5',
   'maj', 'min', 'dim', 'aug', 'sus2', 'sus4',
   '6', 'm6',
   'maj7', 'min7', 'dom7', 'm7b5', 'dim7', 'mMaj7', '7sus4',
@@ -61,14 +64,15 @@ export type ScaleSelection = {
 };
 
 /**
- * 'all' = show every scale note across the neck.
- * 1-5 = one of the 5 CAGED shapes (only for major-derived 7-note scales).
- *   Numbering follows guitarscale.org:
- *     1 = E-shape, 2 = D-shape, 3 = C-shape (octave up), 4 = A-shape, 5 = G-shape.
- *   For C major those land at fret 7, 10, 12, 2, 4 respectively.
+ * 'all'  = show every scale note across the neck.
+ * '2oct' = one compact two-octave position anchored on the 6th-string tonic
+ *          (guitarscale.org's "2 octaves" view). Works for every scale,
+ *          including modes.
+ * 1-5    = a guitarscale.org box ("Shape"); only for scales the site ships
+ *          box images for (major + minor/harm/mel/pentatonic/blues).
  */
-export type ScalePosition = 'all' | 1 | 2 | 3 | 4 | 5;
-export const SCALE_POSITIONS: ScalePosition[] = ['all', 1, 2, 3, 4, 5];
+export type ScalePosition = 'all' | '2oct' | 1 | 2 | 3 | 4 | 5;
+export const SCALE_POSITIONS: ScalePosition[] = ['all', '2oct', 1, 2, 3, 4, 5];
 
 export type ViewMode = 'chord' | 'scale' | 'note' | 'all';
 
@@ -78,6 +82,13 @@ export type AppState = {
   scale: ScaleSelection;
   singleNote: PitchClass;
   scalePosition: ScalePosition;
+  /**
+   * Spell the current key with flats (e.g. "Bb major" → Bb C D Eb F G A) rather
+   * than the sharps-only internal default. Set when the user picks a flat-named
+   * root; only affects accidental roots — natural-root keys are spelled by tonal
+   * regardless (D major is always F#/C#).
+   */
+  preferFlats: boolean;
 };
 
 export type PianoKey = {
@@ -102,6 +113,44 @@ export type ResolvedSelection = {
   piano: Note[];
   guitar: Note[];
   push: Note[];
+  /** Notes for the 4-string bass view. Always matched by pitch class
+   *  (bass plays single notes — no chord voicings tracked), so the array
+   *  is the same set the guitar uses in PC-flood mode. */
+  bass: Note[];
   rootPitchClass: PitchClass | null;
   label: string;
+};
+
+// ----- Game mode (find-the-note ear/visual training) -----
+
+export type Instrument = 'piano' | 'guitar' | 'push';
+
+export const INSTRUMENTS: Instrument[] = ['piano', 'guitar', 'push'];
+
+export type GuessPosition =
+  | { kind: 'piano'; midi: number }
+  | { kind: 'guitar'; string: number; fret: number }
+  | { kind: 'push'; row: number; col: number };
+
+export type GuessResult = {
+  position: GuessPosition;
+  /** Pitch class actually at this position (what the player effectively chose). */
+  actualPC: PitchClass;
+  /** Pitch class that was asked when this guess was submitted. */
+  expectedPC: PitchClass;
+  correct: boolean;
+};
+
+export type GameModeState = {
+  enabled: boolean;
+  currentQuestion: PitchClass | null;
+  /** Display spelling for the current question — same PC, but might read as a flat ("Db" vs "C#"). */
+  currentQuestionDisplay: string | null;
+  pendingGuesses: GuessPosition[];
+  /** Per-guess expected PC, parallel to pendingGuesses (the question rotates after each click). */
+  pendingExpected: PitchClass[];
+  checkedResults: GuessResult[] | null;
+  currentStreak: number;
+  bestStreak: number;
+  lastQuestion: PitchClass | null;
 };

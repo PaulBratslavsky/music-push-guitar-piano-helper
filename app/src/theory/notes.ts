@@ -17,6 +17,24 @@ export function normalizePitchClass(pc: string): PitchClass | null {
   return SHARPS[pc] ?? null;
 }
 
+/**
+ * Flat-spelling enharmonic for the 5 accidentals. Naturals are unambiguous and
+ * keep their name. Used when the user picks a flat key (e.g. "Bb" not "A#") so
+ * tonal spells the whole scale/chord with the correct accidentals.
+ */
+export const FLAT_NAMES: Partial<Record<PitchClass, string>> = {
+  'C#': 'Db',
+  'D#': 'Eb',
+  'F#': 'Gb',
+  'G#': 'Ab',
+  'A#': 'Bb',
+};
+
+/** The tonal-query name for a root: its flat spelling when `preferFlats`, else the sharp PC. */
+export function spelledRoot(pc: PitchClass, preferFlats: boolean): string {
+  return preferFlats ? FLAT_NAMES[pc] ?? pc : pc;
+}
+
 export function pitchClassFromMidi(midi: number): PitchClass {
   return PITCH_CLASSES[((midi % 12) + 12) % 12];
 }
@@ -63,7 +81,13 @@ export function toTonalName(note: Note): string {
 export function pitchClassFromName(name: string): PitchClass | null {
   const props = TonalNote.get(name);
   if (props.empty) return null;
-  return normalizePitchClass(props.pc);
+  const norm = normalizePitchClass(props.pc);
+  if (norm) return norm;
+  // Fall back to chroma so double-accidental spellings (e.g. "Bbb", "F##" that
+  // appear in flat harmonic/melodic-minor keys) still map to a pitch class
+  // instead of being silently dropped from the scale.
+  if (typeof props.chroma === 'number') return PITCH_CLASSES[props.chroma];
+  return null;
 }
 
 /**
@@ -89,11 +113,25 @@ export function notesAscending(pcs: PitchClass[], startOctave = 4): Note[] {
   return out;
 }
 
+/** Natural-named pitch classes. Their display label stays constant
+ *  regardless of the surrounding key — F is always F (never E#), C is
+ *  always C (never B#), B is always B (never Cb), etc. This avoids
+ *  cluttering sharp-side scales (D# major, A# minor, ...) with the
+ *  technically-correct-but-confusing double-sharp / natural-shifted
+ *  spellings that tonal generates (F##, B#, etc.). Only accidental
+ *  PCs (C#, D#, F#, G#, A#) get respelled between sharp/flat. */
+const NATURAL_PCS: ReadonlySet<PitchClass> = new Set<PitchClass>([
+  'C', 'D', 'E', 'F', 'G', 'A', 'B',
+]);
+
 /**
  * Build a PC → display-name map from a list of tonal note names. Lets the views
- * render the *correct enharmonic* for the current key (e.g. "Bb" instead of "A#"
- * in F major). Notes whose PC isn't in the input list fall back to the default
- * (sharp) display name.
+ * render the *correct enharmonic* for the current key for ACCIDENTAL PCs
+ * (e.g. "Bb" instead of "A#" in F major) while keeping NATURAL PCs constant
+ * (F stays F even when tonal would call it "E#" in C# major).
+ *
+ * Notes whose PC isn't in the input list fall back to the default (sharp)
+ * display name.
  */
 export function buildDisplayMap(
   noteNames: string[],
@@ -102,6 +140,11 @@ export function buildDisplayMap(
   for (const name of noteNames) {
     const pc = pitchClassFromName(name);
     if (pc == null) continue;
+    // Skip respellings of natural-named pitch classes. Tonal returns
+    // "musically correct" spellings (B# for the 7th in C# major, F## for
+    // the 3rd in D# major), but the resulting fretboard labels are noisy
+    // and unfamiliar. Naturals always stay as their letter name.
+    if (NATURAL_PCS.has(pc)) continue;
     // Only override the default if the tonal name actually differs from our PC name.
     // Strip any trailing octave digit before storing.
     const displayName = name.replace(/[0-9]/g, '');

@@ -1,110 +1,68 @@
-import type { GameModeState, GuessPosition, Note, PitchClass } from '../../types';
-import { buildGuitarLayout, FRET_COUNT, STANDARD_TUNING_MIDI } from './layout';
+// BassView — 4-string bass fretboard. Same visual language as GuitarView
+// (strings, frets, inlays, dot markers) but stripped to the essentials:
+//   - No game mode (bass v1 is read-only).
+//   - No voicing positions / shape overlays — bass plays single notes,
+//     so every PC-matching position lights up; no chord shape pinning.
+//   - No barre indicator.
+//
+// The bass neck is longer (20 frets) so the layout uses a slightly
+// narrower fret width to keep the overall width similar to the guitar.
+
+import type { Note, PitchClass } from '../../types';
+import { buildBassLayout, BASS_FRET_COUNT, STANDARD_BASS_TUNING_MIDI } from './layout';
 import { midiFromNote } from '../../theory/notes';
 
 type Props = {
   highlighted: Note[];
   rootPitchClass?: PitchClass | null;
-  matchByPitchClass?: boolean;
   focusedPitchClass?: PitchClass | null;
   onPickPitchClass?: (pc: PitchClass) => void;
   /** Called with the exact midi number on click (used for audio playback). */
   onPlayNote?: (midi: number) => void;
   pcLabels?: Partial<Record<PitchClass, string>>;
-  shapePositions?: Set<string> | null;
-  /** Absolute barre fret + string range to render as a thick translucent
-   *  bar across the fretboard. Drives the "this is a barre chord" visual
-   *  for E-shape / A-shape barre voicings. null when the voicing isn't a
-   *  barre. See voicings/guitar.ts:GuitarVoicing.barre. */
-  barre?: { fret: number; fromString: number; toString: number } | null;
   showNaturals?: boolean;
   emphasizedPitchClasses?: Set<PitchClass> | null;
-  gameMode?: GameModeState;
-  onGameGuess?: (pos: GuessPosition) => void;
 };
-
-type GameMark = 'pending' | 'correct' | 'wrong';
 
 const NATURAL_PCS: ReadonlySet<PitchClass> = new Set<PitchClass>([
   'C', 'D', 'E', 'F', 'G', 'A', 'B',
 ]);
 
-const FRET_W = 52;
-const STRING_GAP = 22;
+// Narrower frets than guitar so a 20-fret board fits comfortably.
+const FRET_W = 38;
+const STRING_GAP = 26;
 const PADDING_X = 56;
 const PADDING_Y = 22;
 const NUT_W = 6;
 
-const STRING_COUNT = STANDARD_TUNING_MIDI.length;
+const STRING_COUNT = STANDARD_BASS_TUNING_MIDI.length;
 
-// Standard fretboard inlays used as positional reference markers, matching
-// the diagrams on guitarscale.org and most production electric guitars.
-const FRET_INLAYS_SINGLE = new Set([3, 5, 7, 9, 15]);
+const FRET_INLAYS_SINGLE = new Set([3, 5, 7, 9, 15, 17, 19]);
 const FRET_INLAYS_DOUBLE = new Set([12]);
 
-export function GuitarView({
+export function BassView({
   highlighted,
   rootPitchClass,
-  matchByPitchClass = false,
   focusedPitchClass,
   onPickPitchClass,
   onPlayNote,
   pcLabels,
-  shapePositions,
-  barre,
   showNaturals = false,
   emphasizedPitchClasses,
-  gameMode,
-  onGameGuess,
 }: Props) {
-  const inGame = gameMode?.enabled === true;
-  const grid = buildGuitarLayout();
-
-  // Pending/checked overlays for game mode, keyed by `${string}-${fret}`.
-  const posKey = (s: number, f: number) => `${s}-${f}`;
-  const pendingPos = new Set<string>(
-    inGame
-      ? gameMode!.pendingGuesses
-          .filter((p): p is Extract<GuessPosition, { kind: 'guitar' }> => p.kind === 'guitar')
-          .map((p) => posKey(p.string, p.fret))
-      : [],
-  );
-  const checkedPos = new Map<string, { correct: boolean; expectedPC: PitchClass; actualPC: PitchClass }>();
-  if (inGame && gameMode!.checkedResults) {
-    for (const r of gameMode!.checkedResults) {
-      if (r.position.kind === 'guitar') {
-        checkedPos.set(posKey(r.position.string, r.position.fret), {
-          correct: r.correct,
-          expectedPC: r.expectedPC,
-          actualPC: r.actualPC,
-        });
-      }
-    }
-  }
-  const gameMark = (s: number, f: number): GameMark | null => {
-    const k = posKey(s, f);
-    const c = checkedPos.get(k);
-    if (c) return c.correct ? 'correct' : 'wrong';
-    if (pendingPos.has(k)) return 'pending';
-    return null;
-  };
-  const highlightedMidis = new Set(highlighted.map(midiFromNote));
+  const grid = buildBassLayout();
+  // Bass voicings aren't tracked — match every position by pitch class.
   const highlightedPCs = new Set<PitchClass>(highlighted.map((n) => n.pitchClass));
 
-  const isLit = (note: Note) =>
-    matchByPitchClass
-      ? highlightedPCs.has(note.pitchClass)
-      : highlightedMidis.has(midiFromNote(note));
-
+  const isLit = (note: Note) => highlightedPCs.has(note.pitchClass);
   const isRoot = (note: Note) =>
     rootPitchClass != null && note.pitchClass === rootPitchClass;
-
   const isFocused = (note: Note) =>
     focusedPitchClass != null && note.pitchClass === focusedPitchClass;
 
   const fretboardLeft = PADDING_X;
   const fretboardTop = PADDING_Y;
-  const fretboardWidth = FRET_W * FRET_COUNT;
+  const fretboardWidth = FRET_W * BASS_FRET_COUNT;
   const fretboardHeight = STRING_GAP * (STRING_COUNT - 1);
 
   const totalWidth = fretboardLeft + fretboardWidth + 16;
@@ -116,18 +74,12 @@ export function GuitarView({
   };
   const yForString = (s: number): number => fretboardTop + s * STRING_GAP;
 
-  // When a 3NPS shape is active, the position markers themselves *are* the
-  // shape — no rectangular overlay needed. We just filter highlighted notes
-  // to the exact (string, fret) positions in the shape.
-  const inShape = (string: number, fret: number) =>
-    !shapePositions || shapePositions.has(`${string}-${fret}`);
-
   return (
     <svg
       className="instrument-svg"
       viewBox={`0 0 ${totalWidth} ${totalHeight}`}
       role="img"
-      aria-label="Guitar fretboard"
+      aria-label="Bass fretboard"
     >
       <rect
         x={fretboardLeft}
@@ -139,7 +91,7 @@ export function GuitarView({
         ry={4}
       />
 
-
+      {/* Nut */}
       <rect
         x={fretboardLeft - NUT_W}
         y={fretboardTop - 8}
@@ -148,7 +100,8 @@ export function GuitarView({
         fill="#d8cdb8"
       />
 
-      {Array.from({ length: FRET_COUNT }, (_, i) => i + 1).map((f) => (
+      {/* Fret lines */}
+      {Array.from({ length: BASS_FRET_COUNT }, (_, i) => i + 1).map((f) => (
         <line
           key={`fret-${f}`}
           x1={fretboardLeft + f * FRET_W}
@@ -160,7 +113,8 @@ export function GuitarView({
         />
       ))}
 
-      {Array.from({ length: FRET_COUNT }, (_, i) => i + 1)
+      {/* Inlay dots */}
+      {Array.from({ length: BASS_FRET_COUNT }, (_, i) => i + 1)
         .filter((f) => FRET_INLAYS_SINGLE.has(f))
         .map((f) => (
           <circle
@@ -171,28 +125,27 @@ export function GuitarView({
             fill="#5a5048"
           />
         ))}
-      {Array.from({ length: FRET_COUNT }, (_, i) => i + 1)
+      {Array.from({ length: BASS_FRET_COUNT }, (_, i) => i + 1)
         .filter((f) => FRET_INLAYS_DOUBLE.has(f))
         .map((f) => (
           <g key={`inlay2-${f}`}>
             <circle
               cx={fretboardLeft + (f - 0.5) * FRET_W}
-              cy={fretboardTop + STRING_GAP * 1.2}
+              cy={fretboardTop + STRING_GAP * 0.7}
               r={4}
               fill="#5a5048"
             />
             <circle
               cx={fretboardLeft + (f - 0.5) * FRET_W}
-              cy={fretboardTop + STRING_GAP * 3.8}
+              cy={fretboardTop + STRING_GAP * 2.3}
               r={4}
               fill="#5a5048"
             />
           </g>
         ))}
 
-      {/* Side-position dots above the fretboard — like the dots on the side of a real
-          guitar neck, easier to find positions at a glance. */}
-      {Array.from({ length: FRET_COUNT }, (_, i) => i + 1)
+      {/* Side-position dots above the neck */}
+      {Array.from({ length: BASS_FRET_COUNT }, (_, i) => i + 1)
         .filter((f) => FRET_INLAYS_SINGLE.has(f) || FRET_INLAYS_DOUBLE.has(f))
         .map((f) => (
           <g key={`side-${f}`}>
@@ -213,6 +166,7 @@ export function GuitarView({
           </g>
         ))}
 
+      {/* Strings — thicker for bass overall, gradient by index */}
       {grid.map((_, s) => (
         <line
           key={`string-${s}`}
@@ -221,11 +175,12 @@ export function GuitarView({
           y1={yForString(s)}
           y2={yForString(s)}
           stroke="var(--string)"
-          strokeWidth={s < 3 ? 1 : 1.5}
+          strokeWidth={1.5 + (s / STRING_COUNT) * 2}
         />
       ))}
 
-      {!inGame && grid.map((row, s) => (
+      {/* Open-string labels */}
+      {grid.map((row, s) => (
         <text
           key={`open-${s}`}
           x={fretboardLeft - NUT_W - 14}
@@ -239,7 +194,8 @@ export function GuitarView({
         </text>
       ))}
 
-      {Array.from({ length: FRET_COUNT }, (_, i) => i + 1).map((f) => (
+      {/* Fret numbers along the bottom */}
+      {Array.from({ length: BASS_FRET_COUNT }, (_, i) => i + 1).map((f) => (
         <text
           key={`fnum-${f}`}
           x={fretboardLeft + (f - 0.5) * FRET_W}
@@ -253,9 +209,9 @@ export function GuitarView({
         </text>
       ))}
 
-      {/* invisible click hit-areas for every position */}
-      {(onPickPitchClass || inGame) &&
-        grid.flatMap((row, s) =>
+      {/* Click hit-areas */}
+      {onPickPitchClass &&
+        grid.flatMap((row) =>
           row.map((p) => {
             const cx = xForFret(p.fret);
             const cy = yForString(p.string);
@@ -263,7 +219,7 @@ export function GuitarView({
             const h = STRING_GAP - 2;
             return (
               <rect
-                key={`hit-${s}-${p.fret}`}
+                key={`hit-${p.string}-${p.fret}`}
                 x={cx - w / 2}
                 y={cy - h / 2}
                 width={w}
@@ -272,55 +228,21 @@ export function GuitarView({
                 pointerEvents="all"
                 style={{ cursor: 'pointer' }}
                 onClick={() => {
-                  if (inGame) {
-                    onGameGuess?.({ kind: 'guitar', string: p.string, fret: p.fret });
-                    onPlayNote?.(midiFromNote(p.note));
-                    return;
-                  }
                   onPickPitchClass?.(p.note.pitchClass);
                   onPlayNote?.(midiFromNote(p.note));
                 }}
               >
                 <title>
-                  {inGame
-                    ? `string ${p.string + 1}, fret ${p.fret}`
-                    : `${p.note.pitchClass}${p.note.octave} — string ${p.string + 1}, fret ${p.fret}`}
+                  {p.note.pitchClass}
+                  {p.note.octave} — string {p.string + 1}, fret {p.fret}
                 </title>
               </rect>
             );
           }),
         )}
 
-      {/* Barre indicator — a thick translucent bar across the
-          fretboard at the barre fret, spanning the strings the index
-          finger covers. Rendered before the note markers so the dots
-          stack on top. */}
-      {barre && (() => {
-        const { fret, fromString, toString } = barre;
-        const minS = Math.min(fromString, toString);
-        const maxS = Math.max(fromString, toString);
-        const x = xForFret(fret) - 11;
-        const y = yForString(minS) - 11;
-        const height = yForString(maxS) - yForString(minS) + 22;
-        return (
-          <rect
-            x={x}
-            y={y}
-            width={22}
-            height={height}
-            rx={11}
-            ry={11}
-            fill="var(--accent)"
-            opacity={0.25}
-            stroke="var(--accent)"
-            strokeWidth={1.5}
-            pointerEvents="none"
-          />
-        );
-      })()}
-
-      {/* focus rings: every position whose PC matches focusedPitchClass */}
-      {!inGame && focusedPitchClass &&
+      {/* Focus rings */}
+      {focusedPitchClass &&
         grid.flatMap((row) =>
           row
             .filter((p) => isFocused(p.note))
@@ -334,23 +256,22 @@ export function GuitarView({
                 stroke="var(--focus)"
                 strokeWidth={2}
                 pointerEvents="none"
-                opacity={inShape(p.string, p.fret) ? 1 : 0.35}
               />
             )),
         )}
 
-      {/* note markers (chord/scale highlights) — suppressed in game mode */}
-      {!inGame && grid.flatMap((row) =>
+      {/* Note markers */}
+      {grid.flatMap((row) =>
         row
-          .filter((p) => isLit(p.note) && inShape(p.string, p.fret))
+          .filter((p) => isLit(p.note))
           .map((p) => {
             const cx = xForFret(p.fret);
             const cy = yForString(p.string);
             const root = isRoot(p.note);
-            // Dim notes that aren't part of the previewed chord (when one is set).
             const dimmed =
               emphasizedPitchClasses != null &&
               !emphasizedPitchClasses.has(p.note.pitchClass);
+            const fill = root ? 'var(--root)' : 'var(--highlight)';
             return (
               <g
                 key={`pos-${p.string}-${p.fret}`}
@@ -361,7 +282,7 @@ export function GuitarView({
                   cx={cx}
                   cy={cy}
                   r={9}
-                  fill={root ? 'var(--root)' : 'var(--highlight)'}
+                  fill={fill}
                   stroke="#0b0d12"
                   strokeWidth={1.5}
                 />
@@ -381,54 +302,8 @@ export function GuitarView({
           }),
       )}
 
-      {/* game-mode markers (rendered instead of scale highlights when game mode is on) */}
-      {inGame && grid.flatMap((row) =>
-        row
-          .map((p) => ({ p, mark: gameMark(p.string, p.fret) }))
-          .filter((x): x is { p: typeof row[number]; mark: GameMark } => x.mark !== null)
-          .map(({ p, mark }) => {
-            const cx = xForFret(p.fret);
-            const cy = yForString(p.string);
-            const fill =
-              mark === 'correct'
-                ? 'var(--game-correct)'
-                : mark === 'wrong'
-                ? 'var(--game-wrong)'
-                : 'var(--game-pending)';
-            return (
-              <g key={`game-${p.string}-${p.fret}`} pointerEvents="none">
-                <circle
-                  cx={cx}
-                  cy={cy}
-                  r={9}
-                  fill={fill}
-                  stroke="#0b0d12"
-                  strokeWidth={1.5}
-                />
-                {mark === 'wrong' && (
-                  <text
-                    x={cx}
-                    y={cy + 3}
-                    fontSize={9}
-                    fill="#0b0d12"
-                    textAnchor="middle"
-                    fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
-                    fontWeight={700}
-                  >
-                    {checkedPos.get(posKey(p.string, p.fret))?.actualPC}
-                  </text>
-                )}
-              </g>
-            );
-          }),
-      )}
-
-      {/*
-        Naturals overlay (rendered last so it sits on top of scale markers).
-        Yellow circle on every C/D/E/F/G/A/B position. We skip the root note's
-        positions so the orange root marker stays visible underneath.
-      */}
-      {!inGame && showNaturals &&
+      {/* Naturals overlay */}
+      {showNaturals &&
         grid.flatMap((row) =>
           row
             .filter((p) => NATURAL_PCS.has(p.note.pitchClass))

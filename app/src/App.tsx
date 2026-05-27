@@ -1,14 +1,19 @@
 import { useMemo } from 'react';
 import { PianoView } from './instruments/piano/PianoView';
 import { GuitarView } from './instruments/guitar/GuitarView';
+import { BassView } from './instruments/bass/BassView';
 import { PushView } from './instruments/push/PushView';
 import { SelectionBar } from './components/SelectionBar';
+import { GameModePanel } from './components/GameModePanel';
+import { ThemeToggle } from './components/ThemeToggle';
 import { useAppState } from './state/useAppState';
 import { resolveSelection } from './state/resolve';
 import { getDiatonicChords } from './theory/diatonic';
+import { guitarScaleOrgUrl } from './theory/scales';
 import { findScalesContaining } from './theory/chord-scales';
 import { synth } from './audio/synth';
-import { midiFromNote } from './theory/notes';
+import { midiFromNote, notesAscending } from './theory/notes';
+import type { DiatonicChord } from './theory/diatonic';
 import { SheetMusicView } from './instruments/notation/SheetMusicView';
 import { TabView } from './instruments/notation/TabView';
 
@@ -31,9 +36,9 @@ export default function App() {
   const diatonicChords = useMemo(
     () =>
       appState.state.mode === 'scale'
-        ? getDiatonicChords(appState.state.scale)
+        ? getDiatonicChords(appState.state.scale, appState.state.preferFlats)
         : [],
-    [appState.state.mode, appState.state.scale],
+    [appState.state.mode, appState.state.scale, appState.state.preferFlats],
   );
 
   const containingScales = useMemo(
@@ -43,6 +48,14 @@ export default function App() {
         : [],
     [appState.state.mode, appState.state.chord],
   );
+
+  // Clicking a diatonic-chord chip both previews it in the scale and plays it,
+  // so the user hears the chord they're looking at. Plays the full 7th chord
+  // (matching the chip's label, e.g. "Cmaj7"), voiced ascending from the root.
+  const playDiatonicChord = (c: DiatonicChord) => {
+    const midis = notesAscending(c.pitchClasses, 4).map(midiFromNote);
+    if (midis.length > 0) synth.playChord(midis);
+  };
 
   const playCurrent = () => {
     if (resolved.previewedChordPCs && appState.state.mode === 'scale') {
@@ -78,6 +91,7 @@ export default function App() {
           For Push producers learning piano &amp; guitar — see the same chord, scale,
           or note on all three instruments at once.
         </span>
+        <ThemeToggle />
         <button
           type="button"
           className="chip"
@@ -143,8 +157,11 @@ export default function App() {
                   key={c.degree}
                   type="button"
                   className={`diatonic-chip${active ? ' diatonic-chip-active' : ''}`}
-                  onClick={() => appState.togglePreviewedChordDegree(c.degree)}
-                  title={`Highlight ${c.chordName} within the scale`}
+                  onClick={() => {
+                    appState.togglePreviewedChordDegree(c.degree);
+                    playDiatonicChord(c);
+                  }}
+                  title={`Play ${c.chordName} and highlight it within the scale`}
                 >
                   <span className="diatonic-roman">{c.roman}</span>
                   <span className="diatonic-name">{c.chordName}</span>
@@ -178,6 +195,13 @@ export default function App() {
       <div className="instruments">
         <div className="panel">
           <h2 className="panel-title">Piano</h2>
+          <GameModePanel
+            instrument="piano"
+            game={appState.gameMode.piano}
+            onToggle={() => appState.toggleGameMode('piano')}
+            onCheck={() => appState.checkGame('piano')}
+            onReset={() => appState.resetGameRound('piano')}
+          />
           <PianoView
             highlighted={resolved.piano}
             rootPitchClass={resolved.rootPitchClass}
@@ -187,10 +211,36 @@ export default function App() {
             onPlayNote={(midi) => synth.playNote(midi)}
             pcLabels={pcLabels}
             emphasizedPitchClasses={resolved.previewedChordPCs}
+            gameMode={appState.gameMode.piano}
+            onGameGuess={(pos) => appState.submitGuess('piano', pos)}
           />
         </div>
         <div className="panel">
-          <h2 className="panel-title">Guitar (standard tuning)</h2>
+          <h2 className="panel-title">
+            Guitar (standard tuning)
+            {appState.state.mode === 'scale' && (
+              <a
+                className="ref-link"
+                href={guitarScaleOrgUrl(
+                  appState.state.scale.root,
+                  appState.state.scale.type,
+                  appState.state.preferFlats,
+                )}
+                target="_blank"
+                rel="noopener noreferrer"
+                title="Open this scale on guitarscale.org"
+              >
+                ↗ guitarscale.org
+              </a>
+            )}
+          </h2>
+          <GameModePanel
+            instrument="guitar"
+            game={appState.gameMode.guitar}
+            onToggle={() => appState.toggleGameMode('guitar')}
+            onCheck={() => appState.checkGame('guitar')}
+            onReset={() => appState.resetGameRound('guitar')}
+          />
           <GuitarView
             highlighted={resolved.guitar}
             rootPitchClass={resolved.rootPitchClass}
@@ -200,12 +250,35 @@ export default function App() {
             onPlayNote={(midi) => synth.playNote(midi)}
             pcLabels={pcLabels}
             shapePositions={resolved.guitarShapePositions}
+            barre={resolved.guitarBarre}
+            showNaturals={appState.showNaturals}
+            emphasizedPitchClasses={resolved.previewedChordPCs}
+            gameMode={appState.gameMode.guitar}
+            onGameGuess={(pos) => appState.submitGuess('guitar', pos)}
+          />
+        </div>
+        <div className="panel">
+          <h2 className="panel-title">Bass (4-string, standard tuning)</h2>
+          <BassView
+            highlighted={resolved.bass}
+            rootPitchClass={resolved.rootPitchClass}
+            focusedPitchClass={appState.focusedPitchClass}
+            onPickPitchClass={appState.toggleFocusedPitchClass}
+            onPlayNote={(midi) => synth.playNote(midi)}
+            pcLabels={pcLabels}
             showNaturals={appState.showNaturals}
             emphasizedPitchClasses={resolved.previewedChordPCs}
           />
         </div>
         <div className="panel">
           <h2 className="panel-title">Ableton Push (chromatic)</h2>
+          <GameModePanel
+            instrument="push"
+            game={appState.gameMode.push}
+            onToggle={() => appState.toggleGameMode('push')}
+            onCheck={() => appState.checkGame('push')}
+            onReset={() => appState.resetGameRound('push')}
+          />
           <PushView
             highlighted={resolved.push}
             rootPitchClass={resolved.rootPitchClass}
@@ -214,6 +287,8 @@ export default function App() {
             onPlayNote={(midi) => synth.playNote(midi)}
             pcLabels={pcLabels}
             emphasizedPitchClasses={resolved.previewedChordPCs}
+            gameMode={appState.gameMode.push}
+            onGameGuess={(pos) => appState.submitGuess('push', pos)}
           />
         </div>
       </div>

@@ -73,12 +73,15 @@ function classifySeventh(
  * pentatonics and blues don't have a clean diatonic-chord theory, so we return
  * an empty list for those.
  */
-export function getDiatonicChords(selection: ScaleSelection): DiatonicChord[] {
+export function getDiatonicChords(
+  selection: ScaleSelection,
+  preferFlats = false,
+): DiatonicChord[] {
   const pcs = getScalePitchClasses(selection);
   if (pcs.length !== 7) return [];
 
   // Map PC → preferred display name (uses the scale's actual enharmonic spelling).
-  const noteNames = getScaleNoteNames(selection);
+  const noteNames = getScaleNoteNames(selection, preferFlats);
   const display: Partial<Record<PitchClass, string>> = {};
   noteNames.forEach((name, idx) => {
     if (idx < pcs.length) {

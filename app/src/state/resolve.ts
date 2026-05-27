@@ -9,50 +9,18 @@ import type {
 import { PITCH_CLASSES } from '../types';
 import { getChordNoteNames, getChordPitchClasses } from '../theory/chords';
 import { getScaleNoteNames, getScalePitchClasses, SCALE_TYPE_LABELS } from '../theory/scales';
-import { buildDisplayMap, notesAscending } from '../theory/notes';
+import { buildDisplayMap, notesAscending, spelledRoot } from '../theory/notes';
 import { pianoVoicing } from '../theory/voicings/piano';
 import { guitarVoicing, guitarHasShape, guitarVoicingCount } from '../theory/voicings/guitar';
 import { pushVoicing } from '../theory/voicings/push';
 import { degreesForSelection } from '../theory/degrees';
 import {
-  parentMajorRoot,
   realizeCagedShape,
   shapeName,
   supportsCaged,
 } from '../theory/positions';
 import { getDiatonicChords } from '../theory/diatonic';
-
-const QUALITY_LABEL: Record<string, string> = {
-  maj: 'maj',
-  min: 'm',
-  dim: 'dim',
-  aug: 'aug',
-  sus2: 'sus2',
-  sus4: 'sus4',
-  '6': '6',
-  m6: 'm6',
-  maj7: 'maj7',
-  min7: 'm7',
-  dom7: '7',
-  m7b5: 'm7♭5',
-  dim7: 'dim7',
-  mMaj7: 'mMaj7',
-  '7sus4': '7sus4',
-  add9: 'add9',
-  madd9: 'm(add9)',
-  '9': '9',
-  maj9: 'maj9',
-  m9: 'm9',
-  '11': '11',
-  m11: 'm11',
-  '13': '13',
-  m13: 'm13',
-  '7b5': '7♭5',
-  '7#5': '7♯5',
-  '7b9': '7♭9',
-  '7#9': '7♯9',
-  alt: 'alt',
-};
+import { QUALITY_LABELS } from '../theory/quality-labels';
 
 function ordinal(n: number): string {
   if (n === 0) return 'root position';
@@ -80,6 +48,12 @@ export type ResolvedExtras = ResolvedSelection & {
    */
   guitarShapePositions: Set<string> | null;
   /**
+   * Resolved barre for the current chord-mode voicing. null in
+   * scale/note/all modes, and null for chord voicings without a barre
+   * (open chords, two-finger power chord, etc.).
+   */
+  guitarBarre: { fret: number; fromString: number; toString: number } | null;
+  /**
    * Pitch classes that belong to the previewed diatonic chord (scale mode only).
    * When set, views render scale notes that aren't in this set as dimmed, and
    * the chord's root takes over from the scale's root for color emphasis.
@@ -95,27 +69,34 @@ export function resolveSelection(
   const pcDegrees = degreesForSelection(state.mode, state.chord, state.scale, state.singleNote);
   if (state.mode === 'chord') {
     const piano = pianoVoicing(state.chord);
-    const { notes: guitar, shapeName } = guitarVoicing(state.chord);
+    const { notes: guitar, shapeName, barre } = guitarVoicing(state.chord);
     const push = pushVoicing(state.chord);
 
     const pcs = getChordPitchClasses(state.chord.root, state.chord.quality);
     const safeInv = pcs.length === 0 ? 0 : ((state.chord.inversion % pcs.length) + pcs.length) % pcs.length;
 
-    const labelBase = `${state.chord.root}${QUALITY_LABEL[state.chord.quality] ?? state.chord.quality}`;
+    const rootLabel = spelledRoot(state.chord.root, state.preferFlats);
+    const labelBase = `${rootLabel}${QUALITY_LABELS[state.chord.quality]}`;
     const shapeStr = shapeName ? `, ${shapeName}` : ', all positions';
     const label = `${labelBase} — ${ordinal(safeInv)}${shapeStr}`;
 
     return {
       piano,
       guitar,
+      // Bass uses pitch-class matching, so just reuse the guitar notes —
+      // their PCs are what BassView reads.
+      bass: guitar,
       push,
       rootPitchClass: state.chord.root,
       label,
       pianoMatchByPitchClass: false,
       guitarMatchByPitchClass: !guitarHasShape(state.chord.quality),
       pcDegrees,
-      pcDisplay: buildDisplayMap(getChordNoteNames(state.chord.root, state.chord.quality)),
+      pcDisplay: buildDisplayMap(
+        getChordNoteNames(state.chord.root, state.chord.quality, state.preferFlats),
+      ),
       guitarShapePositions: null,
+      guitarBarre: barre,
       previewedChordPCs: null,
       previewedChordRoot: null,
     };
@@ -125,22 +106,30 @@ export function resolveSelection(
     // Generate notes in true ascending order from the scale root (so E minor
     // gives E4, F#4, G4, A4, B4, C5, D5 — not midi-sorted starting from C4).
     const notes = notesAscending(pcs, 4);
-    const pcDisplay = buildDisplayMap(getScaleNoteNames(state.scale));
-    const label = `${state.scale.root} ${SCALE_TYPE_LABELS[state.scale.type]}`;
+    const pcDisplay = buildDisplayMap(getScaleNoteNames(state.scale, state.preferFlats));
+    const label = `${spelledRoot(state.scale.root, state.preferFlats)} ${SCALE_TYPE_LABELS[state.scale.type]}`;
 
     // CAGED position selector — only affects the guitar view. Piano + Push
     // always show the full scale (mirroring guitar fingering on piano is
     // confusing because piano has no "positions").
     let shapePositions: Set<string> | null = null;
     let positionLabel = '';
-    if (state.scalePosition !== 'all' && supportsCaged(state.scale.type)) {
-      const parent = parentMajorRoot(state.scale.type, state.scale.root);
-      if (parent !== null) {
-        const realized = realizeCagedShape(state.scalePosition, parent, pcs);
-        if (realized.length > 0) {
-          shapePositions = new Set(realized.map((p) => `${p.string}-${p.fret}`));
-          positionLabel = ` — Shape ${state.scalePosition} (${shapeName(state.scalePosition)})`;
-        }
+    const posActive =
+      state.scalePosition === '2oct' ||
+      (state.scalePosition !== 'all' && supportsCaged(state.scale.type));
+    if (posActive && state.scalePosition !== 'all') {
+      const realized = realizeCagedShape(
+        state.scalePosition,
+        state.scale.root,
+        pcs,
+        state.scale.type,
+      );
+      if (realized.length > 0) {
+        shapePositions = new Set(realized.map((p) => `${p.string}-${p.fret}`));
+        positionLabel =
+          state.scalePosition === '2oct'
+            ? ' — 2 octaves'
+            : ` — Shape ${state.scalePosition} (${shapeName(state.scalePosition, state.scale.type)})`;
       }
     }
 
@@ -150,7 +139,7 @@ export function resolveSelection(
     let previewedChordRoot: PitchClass | null = null;
     let previewLabel = '';
     if (previewedChordDegree != null) {
-      const chords = getDiatonicChords(state.scale);
+      const chords = getDiatonicChords(state.scale, state.preferFlats);
       const chord = chords.find((c) => c.degree === previewedChordDegree);
       if (chord) {
         // Highlight just the triad (root, 3rd, 5th) for clarity — the 7th would
@@ -165,6 +154,7 @@ export function resolveSelection(
     return {
       piano: notes,
       guitar: notes,
+      bass: notes,
       push: notes,
       rootPitchClass: previewedChordRoot ?? state.scale.root,
       label: label + positionLabel + previewLabel,
@@ -173,6 +163,7 @@ export function resolveSelection(
       pcDegrees,
       pcDisplay,
       guitarShapePositions: shapePositions,
+      guitarBarre: null,
       previewedChordPCs,
       previewedChordRoot,
     };
@@ -180,17 +171,20 @@ export function resolveSelection(
   if (state.mode === 'note') {
     const pc = state.singleNote;
     const notes = notesFromPitchClasses([pc]);
+    const noteName = spelledRoot(pc, state.preferFlats);
     return {
       piano: notes,
       guitar: notes,
+      bass: notes,
       push: notes,
       rootPitchClass: pc,
-      label: `Note — ${pc}`,
+      label: `Note — ${noteName}`,
       pianoMatchByPitchClass: true,
       guitarMatchByPitchClass: true,
       pcDegrees,
-      pcDisplay: {},
+      pcDisplay: noteName === pc ? {} : { [pc]: noteName },
       guitarShapePositions: null,
+      guitarBarre: null,
       previewedChordPCs: null,
       previewedChordRoot: null,
     };
@@ -200,6 +194,7 @@ export function resolveSelection(
   return {
     piano: allNotes,
     guitar: allNotes,
+    bass: allNotes,
     push: allNotes,
     rootPitchClass: null,
     label: 'All notes',
@@ -208,6 +203,7 @@ export function resolveSelection(
     pcDegrees: {},
     pcDisplay: {},
     guitarShapePositions: null,
+    guitarBarre: null,
     previewedChordPCs: null,
     previewedChordRoot: null,
   };
@@ -219,9 +215,10 @@ export function chordInversionCount(selection: ChordSelection): number {
 
 /** Number of voicing options for current chord (for the SelectionBar stepper). */
 export function chordVoicingCount(selection: ChordSelection): number {
-  // Piano always has 3 voicings; guitar varies by quality. Use the larger so the
-  // user can dial through both — out-of-range guitar voicings wrap inside guitarVoicing.
-  return Math.max(3, guitarVoicingCount(selection.quality));
+  // Piano always has 3 voicings; guitar varies by quality (and root, when an
+  // open-position shape exists). Use the larger so the user can dial through
+  // both — out-of-range guitar voicings wrap inside guitarVoicing.
+  return Math.max(3, guitarVoicingCount(selection));
 }
 
 export function scaleLabel(sel: ScaleSelection): string {

@@ -1,4 +1,5 @@
 :root {
+  /* Dark theme (default). Light theme overrides come after. */
   --bg: #0f1115;
   --panel: #181b22;
   --panel-2: #1f2330;
@@ -19,10 +20,45 @@
   --string: #c9c2b6;
   --focus: #61dafb;
   --natural: #ffd54a;
+  /* Slightly-lighter chip background on hover in dark theme. */
+  --chip-hover: #252a37;
 
   font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI',
     Roboto, 'Helvetica Neue', Arial, sans-serif;
   color-scheme: dark;
+}
+
+/* Light theme — activated by adding `light` class to <html> (or
+   [data-theme="light"]). The fretboard/Push/keyboard surfaces stay
+   visually consistent (musical-instrument photography is universally
+   warm and dim), but the page chrome flips to a paper feel. */
+:root.light,
+:root[data-theme='light'] {
+  --bg: #f7f7f4;
+  --panel: #ffffff;
+  --panel-2: #f0efe9;
+  --border: #d8d5cc;
+  --text: #1c1f24;
+  --text-dim: #5b6068;
+  --accent: #1e6ae6;
+  --accent-2: #3e8aff;
+  --root: #d85936;
+  --highlight: #2ea675;
+  --white-key: #ffffff;
+  --black-key: #1c1f27;
+  --pad: #d8d5cc;
+  --pad-on: #2ea675;
+  --pad-on-root: #d85936;
+  /* Fretboard / strings stay warm-dark in both themes — guitar bodies
+     are wood, regardless of which lamp you turn on. */
+  --fret-wood: #2b2620;
+  --fret-line: #6f6660;
+  --string: #c9c2b6;
+  --focus: #1e6ae6;
+  --natural: #f4b400;
+  /* Slightly-darker chip background on hover in light theme. */
+  --chip-hover: #e3e0d4;
+  color-scheme: light;
 }
 
 * {
@@ -96,6 +132,19 @@ body {
   margin: 0 0 10px;
 }
 
+.panel-title .ref-link {
+  margin-left: 10px;
+  font-size: 11px;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--accent-2);
+  text-decoration: none;
+}
+
+.panel-title .ref-link:hover {
+  text-decoration: underline;
+}
+
 /* SelectionBar */
 .selection-bar {
   display: flex;
@@ -123,6 +172,19 @@ body {
   flex-wrap: wrap;
 }
 
+/* Accidental root: flat (top) / sharp (bottom) stacked in one slot. */
+.root-accidental {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+button.chip.chip-sm {
+  padding: 3px 8px;
+  font-size: 11px;
+  line-height: 1.15;
+}
+
 button.chip {
   background: var(--panel-2);
   color: var(--text);
@@ -136,7 +198,7 @@ button.chip {
 }
 
 button.chip:hover {
-  background: #252a37;
+  background: var(--chip-hover);
 }
 
 button.chip.active {
@@ -171,7 +233,7 @@ button.chip.active:hover {
 }
 
 .stepper button:hover {
-  background: #252a37;
+  background: var(--chip-hover);
 }
 
 .stepper .stepper-value {
@@ -276,7 +338,7 @@ button.clear-focus:hover {
 }
 
 .diatonic-chip:hover:not(:disabled) {
-  background: #252a37;
+  background: var(--chip-hover);
   border-color: var(--accent);
   transform: translateY(-1px);
 }
@@ -386,4 +448,86 @@ button.clear-focus:hover {
   width: 100%;
   height: auto;
   display: block;
+}
+
+/* Game mode */
+:root {
+  --game-pending: #6b7280;
+  --game-correct: #4fd6a1;
+  --game-wrong: #ff6b6b;
+}
+
+.game-mode-panel {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.game-mode-prompt {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 14px;
+  color: var(--text-dim);
+}
+
+.game-mode-prompt strong {
+  color: var(--text);
+  font-size: 18px;
+  margin-left: 4px;
+  letter-spacing: 0.04em;
+}
+
+.game-mode-streak {
+  color: var(--text-dim);
+  font-size: 13px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.game-mode-streak strong {
+  color: var(--text);
+}
+
+.game-mode-pending-count {
+  color: var(--accent-2);
+  font-size: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+button.chip.game-mode-toggle.active {
+  background: var(--game-correct);
+  border-color: var(--game-correct);
+  color: #0b0d12;
+}
+
+button.chip.game-mode-toggle.active:hover {
+  background: #6fe0b3;
+}
+
+button.chip.game-check {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+}
+
+button.chip.game-check:hover:not(:disabled) {
+  background: var(--accent-2);
+}
+
+button.chip:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.game-mode-result {
+  font-size: 13px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.game-mode-result[data-allcorrect="true"] {
+  color: var(--game-correct);
+}
+
+.game-mode-result[data-allcorrect="false"] {
+  color: var(--game-wrong);
 }

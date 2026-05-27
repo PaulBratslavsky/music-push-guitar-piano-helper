@@ -1,7 +1,6 @@
 import {
   CHORD_QUALITIES,
   PITCH_CLASSES,
-  SCALE_POSITIONS,
   SCALE_TYPES,
   type ChordQuality,
   type PitchClass,
@@ -10,41 +9,15 @@ import {
   type ViewMode,
 } from '../types';
 import { SCALE_TYPE_LABELS } from '../theory/scales';
-import { supportsCaged } from '../theory/positions';
+import { availablePositions } from '../theory/positions';
 import { useAppState } from '../state/useAppState';
 import { chordInversionCount, chordVoicingCount } from '../state/resolve';
-
-const QUALITY_DISPLAY: Record<ChordQuality, string> = {
-  maj: 'maj',
-  min: 'm',
-  dim: 'dim',
-  aug: 'aug',
-  sus2: 'sus2',
-  sus4: 'sus4',
-  '6': '6',
-  m6: 'm6',
-  maj7: 'maj7',
-  min7: 'm7',
-  dom7: '7',
-  m7b5: 'm7♭5',
-  dim7: 'dim7',
-  mMaj7: 'mMaj7',
-  '7sus4': '7sus4',
-  add9: 'add9',
-  madd9: 'm(add9)',
-  '9': '9',
-  maj9: 'maj9',
-  m9: 'm9',
-  '11': '11',
-  m11: 'm11',
-  '13': '13',
-  m13: 'm13',
-  '7b5': '7♭5',
-  '7#5': '7♯5',
-  '7b9': '7♭9',
-  '7#9': '7♯9',
-  alt: 'alt',
-};
+import {
+  currentGuitarShapeName,
+  qualityHasAnyShape,
+} from '../theory/voicings/guitar';
+import { QUALITY_LABELS } from '../theory/quality-labels';
+import { FLAT_NAMES } from '../theory/notes';
 
 type Props = ReturnType<typeof useAppState>;
 
@@ -53,7 +26,7 @@ export function SelectionBar({
   setMode,
   setChord,
   setScale,
-  setSingleNote,
+  pickRoot,
   setScalePosition,
   labelMode,
   setLabelMode,
@@ -79,53 +52,98 @@ export function SelectionBar({
         </div>
       </div>
 
-      {state.mode !== 'all' && (
-      <div className="selection-group">
-        <span className="group-label">Root</span>
-        <div className="btn-row">
-          {PITCH_CLASSES.map((pc) => {
-            const active =
-              (state.mode === 'chord' && state.chord.root === pc) ||
-              (state.mode === 'scale' && state.scale.root === pc) ||
-              (state.mode === 'note' && state.singleNote === pc);
-            return (
-              <button
-                key={pc}
-                className={`chip${active ? ' active' : ''}`}
-                onClick={() => {
-                  if (state.mode === 'chord') {
-                    setChord((c) => ({ ...c, root: pc as PitchClass, inversion: 0 }));
-                  } else if (state.mode === 'scale') {
-                    setScale((s) => ({ ...s, root: pc as PitchClass }));
-                  } else {
-                    setSingleNote(pc as PitchClass);
-                  }
-                }}
-              >
-                {pc}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-      )}
+      {state.mode !== 'all' && (() => {
+        const currentRoot: PitchClass =
+          state.mode === 'chord'
+            ? state.chord.root
+            : state.mode === 'scale'
+            ? state.scale.root
+            : state.singleNote;
+        return (
+          <div className="selection-group">
+            <span className="group-label">Root</span>
+            <div className="btn-row">
+              {PITCH_CLASSES.map((pc) => {
+                const flatName = FLAT_NAMES[pc];
+                if (!flatName) {
+                  // Natural note — single, unambiguous button.
+                  const active = currentRoot === pc;
+                  return (
+                    <button
+                      key={pc}
+                      className={`chip${active ? ' active' : ''}`}
+                      onClick={() => pickRoot(pc, false)}
+                    >
+                      {pc}
+                    </button>
+                  );
+                }
+                // Accidental — stacked flat (top) / sharp (bottom) so flat keys
+                // like Bb are directly selectable and spelled correctly.
+                const sharpActive = currentRoot === pc && !state.preferFlats;
+                const flatActive = currentRoot === pc && state.preferFlats;
+                return (
+                  <div key={pc} className="root-accidental">
+                    <button
+                      className={`chip chip-sm${flatActive ? ' active' : ''}`}
+                      onClick={() => pickRoot(pc, true)}
+                      title={`${flatName} (flat spelling)`}
+                    >
+                      {flatName}
+                    </button>
+                    <button
+                      className={`chip chip-sm${sharpActive ? ' active' : ''}`}
+                      onClick={() => pickRoot(pc, false)}
+                      title={`${pc} (sharp spelling)`}
+                    >
+                      {pc}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
 
       {state.mode === 'chord' && (
         <>
           <div className="selection-group">
             <span className="group-label">Quality</span>
             <div className="btn-row">
-              {CHORD_QUALITIES.map((q) => (
-                <button
-                  key={q}
-                  className={`chip${state.chord.quality === q ? ' active' : ''}`}
-                  onClick={() =>
-                    setChord((c) => ({ ...c, quality: q as ChordQuality, inversion: 0 }))
-                  }
-                >
-                  {QUALITY_DISPLAY[q]}
-                </button>
-              ))}
+              {CHORD_QUALITIES.map((q) => {
+                // Dim chips for qualities with no named guitar shape —
+                // piano + Push still work but the guitar fretboard falls
+                // back to "every matching position" instead of a clean
+                // fingering. Tooltip explains the fallback.
+                const hasShape = qualityHasAnyShape(q);
+                const isActive = state.chord.quality === q;
+                return (
+                  <button
+                    key={q}
+                    className={`chip${isActive ? ' active' : ''}`}
+                    style={!hasShape && !isActive ? { opacity: 0.55 } : undefined}
+                    title={
+                      hasShape
+                        ? undefined
+                        : 'No named guitar shape — fretboard shows every matching position (piano + Push still work as expected)'
+                    }
+                    onClick={() =>
+                      setChord((c) => ({
+                        ...c,
+                        quality: q as ChordQuality,
+                        inversion: 0,
+                        // Reset voicingIndex on quality change so we land
+                        // on the canonical fingering for the new quality
+                        // rather than carrying over a stale barre index.
+                        voicingIndex: 0,
+                      }))
+                    }
+                  >
+                    {QUALITY_LABELS[q]}
+                  </button>
+                );
+              })}
             </div>
           </div>
 
@@ -145,6 +163,34 @@ export function SelectionBar({
               max={Math.max(0, chordVoicingCount(state.chord) - 1)}
               onChange={(n) => setChord((c) => ({ ...c, voicingIndex: n }))}
             />
+            {/* Shape-name badge — surfaces the active voicing's identity
+                ("Open C", "E-shape barre", "A-string power chord") next
+                to the stepper. Accent color for barre/power shapes; muted
+                for open shapes. */}
+            {(() => {
+              const name = currentGuitarShapeName(state.chord);
+              if (!name) return null;
+              const isBarre = name.toLowerCase().includes('barre');
+              const isPower = name.toLowerCase().includes('power');
+              const badgeColor = isBarre || isPower
+                ? 'var(--accent)'
+                : 'var(--text-dim)';
+              return (
+                <span
+                  style={{
+                    marginLeft: 8,
+                    padding: '2px 8px',
+                    borderRadius: 12,
+                    border: `1px solid ${badgeColor}`,
+                    color: badgeColor,
+                    fontSize: 11,
+                    fontWeight: 600,
+                  }}
+                >
+                  {name}
+                </span>
+              );
+            })()}
           </div>
         </>
       )}
@@ -165,32 +211,34 @@ export function SelectionBar({
               ))}
             </div>
           </div>
-          {supportsCaged(state.scale.type) && (
-            <div className="selection-group">
-              <span
-                className="group-label"
-                title="Filter the guitar fretboard to one of the 5 CAGED scale shapes (E, D, C, A, G). Modes share the parent major's shapes."
-              >
-                Guitar shape
-              </span>
-              <div className="btn-row">
-                {SCALE_POSITIONS.map((p) => (
-                  <button
-                    key={String(p)}
-                    className={`chip${state.scalePosition === p ? ' active' : ''}`}
-                    onClick={() => setScalePosition(p as ScalePosition)}
-                    title={
-                      p === 'all'
-                        ? 'Show every scale note across the neck'
-                        : `Shape ${p}`
-                    }
-                  >
-                    {p === 'all' ? 'All' : `Shape ${p}`}
-                  </button>
-                ))}
-              </div>
+          {/* '2-oct' works for every scale (incl. modes); numbered boxes only
+              for scales guitarscale.org ships box images for. */}
+          <div className="selection-group">
+            <span
+              className="group-label"
+              title="Filter the guitar fretboard to one position. '2-oct' is the compact two-octave box from the 6th-string root (works for every scale); numbered shapes are guitarscale.org's boxes."
+            >
+              Guitar shape
+            </span>
+            <div className="btn-row">
+              {(['all', '2oct', ...availablePositions(state.scale.type)] as ScalePosition[]).map((p) => (
+                <button
+                  key={String(p)}
+                  className={`chip${state.scalePosition === p ? ' active' : ''}`}
+                  onClick={() => setScalePosition(p)}
+                  title={
+                    p === 'all'
+                      ? 'Show every scale note across the neck'
+                      : p === '2oct'
+                      ? 'Compact two-octave box on the 6th-string root'
+                      : `Position ${p} (guitarscale.org box ${p})`
+                  }
+                >
+                  {p === 'all' ? 'All' : p === '2oct' ? '2-oct' : `Shape ${p}`}
+                </button>
+              ))}
             </div>
-          )}
+          </div>
         </>
       )}
 

@@ -1,8 +1,10 @@
 import { Chord } from 'tonal';
 import type { ChordQuality, ChordSelection, Note, PitchClass } from '../types';
-import { midiFromPitchOctave, noteFromMidi, pitchClassFromName } from './notes';
+import { midiFromPitchOctave, noteFromMidi, pitchClassFromName, spelledRoot } from './notes';
 
 const QUALITY_TO_TONAL_SUFFIX: Record<ChordQuality, string> = {
+  // Power chord (root + 5th — tonal returns [root, fifth] for "C5")
+  '5': '5',
   // Triads
   maj: 'M',
   min: 'm',
@@ -41,8 +43,12 @@ const QUALITY_TO_TONAL_SUFFIX: Record<ChordQuality, string> = {
   alt: '7alt',
 };
 
-export function chordSymbol(root: PitchClass, quality: ChordQuality): string {
-  return `${root}${QUALITY_TO_TONAL_SUFFIX[quality]}`;
+export function chordSymbol(
+  root: PitchClass,
+  quality: ChordQuality,
+  preferFlats = false,
+): string {
+  return `${spelledRoot(root, preferFlats)}${QUALITY_TO_TONAL_SUFFIX[quality]}`;
 }
 
 /**
@@ -109,7 +115,11 @@ export function chordSize(quality: ChordQuality, root: PitchClass = 'C'): number
 }
 
 /** Raw tonal note names for the chord (e.g. ['F','A','C','Eb'] for Fmin7). */
-export function getChordNoteNames(root: PitchClass, quality: ChordQuality): string[] {
-  const c = Chord.get(chordSymbol(root, quality));
+export function getChordNoteNames(
+  root: PitchClass,
+  quality: ChordQuality,
+  preferFlats = false,
+): string[] {
+  const c = Chord.get(chordSymbol(root, quality, preferFlats));
   return c.empty ? [] : c.notes;
 }

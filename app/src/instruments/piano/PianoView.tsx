@@ -1,4 +1,4 @@
-import type { Note, PianoKey, PitchClass } from '../../types';
+import type { GameModeState, GuessPosition, Note, PianoKey, PitchClass } from '../../types';
 import { defaultPianoLayout } from './layout';
 import { midiFromNote } from '../../theory/notes';
 
@@ -12,7 +12,11 @@ type Props = {
   onPlayNote?: (midi: number) => void;
   pcLabels?: Partial<Record<PitchClass, string>>;
   emphasizedPitchClasses?: Set<PitchClass> | null;
+  gameMode?: GameModeState;
+  onGameGuess?: (pos: GuessPosition) => void;
 };
+
+type GameMark = 'pending' | 'correct' | 'wrong' | null;
 
 const WHITE_W = 28;
 const WHITE_H = 150;
@@ -30,7 +34,10 @@ export function PianoView({
   onPlayNote,
   pcLabels,
   emphasizedPitchClasses,
+  gameMode,
+  onGameGuess,
 }: Props) {
+  const inGame = gameMode?.enabled === true;
   const isDimmed = (pc: PitchClass) =>
     emphasizedPitchClasses != null && !emphasizedPitchClasses.has(pc);
   const keys = defaultPianoLayout();
@@ -51,12 +58,45 @@ export function PianoView({
   const isFocused = (key: PianoKey) =>
     focusedPitchClass != null && key.note.pitchClass === focusedPitchClass;
 
+  // Quick lookup for pending/checked overlays in game mode.
+  const pendingMidis = new Set<number>(
+    inGame
+      ? gameMode!.pendingGuesses
+          .filter((p): p is Extract<GuessPosition, { kind: 'piano' }> => p.kind === 'piano')
+          .map((p) => p.midi)
+      : [],
+  );
+  const checkedByMidi = new Map<number, { correct: boolean; expectedPC: PitchClass; actualPC: PitchClass }>();
+  if (inGame && gameMode!.checkedResults) {
+    for (const r of gameMode!.checkedResults) {
+      if (r.position.kind === 'piano') {
+        checkedByMidi.set(r.position.midi, {
+          correct: r.correct,
+          expectedPC: r.expectedPC,
+          actualPC: r.actualPC,
+        });
+      }
+    }
+  }
+  const gameMark = (midi: number): GameMark => {
+    const c = checkedByMidi.get(midi);
+    if (c) return c.correct ? 'correct' : 'wrong';
+    if (pendingMidis.has(midi)) return 'pending';
+    return null;
+  };
+
   const width = whiteKeys.length * WHITE_W + PADDING_X * 2;
   const height = WHITE_H + PADDING_Y * 2;
 
   const handle = (key: PianoKey) => () => {
+    const midi = midiFromNote(key.note);
+    if (inGame) {
+      onGameGuess?.({ kind: 'piano', midi });
+      onPlayNote?.(midi);
+      return;
+    }
     onPickPitchClass?.(key.note.pitchClass);
-    onPlayNote?.(midiFromNote(key.note));
+    onPlayNote?.(midi);
   };
 
   return (
@@ -68,15 +108,17 @@ export function PianoView({
     >
       {whiteKeys.map((key, i) => {
         const x = PADDING_X + i * WHITE_W;
-        const lit = isLit(key);
-        const root = isRoot(key);
-        const focused = isFocused(key);
+        const midi = midiFromNote(key.note);
+        const lit = !inGame && isLit(key);
+        const root = !inGame && isRoot(key);
+        const focused = !inGame && isFocused(key);
+        const mark = inGame ? gameMark(midi) : null;
         return (
           <g
             key={`w-${i}`}
             className="clickable"
             onClick={handle(key)}
-            style={{ cursor: onPickPitchClass ? 'pointer' : 'default' }}
+            style={{ cursor: inGame || onPickPitchClass ? 'pointer' : 'default' }}
           >
             <rect
               x={x}
@@ -114,6 +156,37 @@ export function PianoView({
                 )}
               </g>
             )}
+            {mark && (
+              <g pointerEvents="none">
+                <circle
+                  cx={x + WHITE_W / 2}
+                  cy={PADDING_Y + WHITE_H - 22}
+                  r={10}
+                  fill={
+                    mark === 'correct'
+                      ? 'var(--game-correct)'
+                      : mark === 'wrong'
+                      ? 'var(--game-wrong)'
+                      : 'var(--game-pending)'
+                  }
+                  stroke="#0b0d12"
+                  strokeWidth={1}
+                />
+                {mark === 'wrong' && (
+                  <text
+                    x={x + WHITE_W / 2}
+                    y={PADDING_Y + WHITE_H - 19}
+                    fontSize={9}
+                    fill="#0b0d12"
+                    textAnchor="middle"
+                    fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
+                    fontWeight={700}
+                  >
+                    {checkedByMidi.get(midi)?.actualPC}
+                  </text>
+                )}
+              </g>
+            )}
             {focused && (
               <circle
                 cx={x + WHITE_W / 2}
@@ -125,33 +198,37 @@ export function PianoView({
                 pointerEvents="none"
               />
             )}
-            <text
-              x={x + WHITE_W / 2}
-              y={PADDING_Y + WHITE_H - 6}
-              fontSize={9}
-              fill={focused ? 'var(--focus)' : '#7a7f8b'}
-              textAnchor="middle"
-              fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
-              fontWeight={focused ? 700 : 400}
-            >
-              {key.note.pitchClass}
-              {key.note.octave}
-            </text>
+            {!inGame && (
+              <text
+                x={x + WHITE_W / 2}
+                y={PADDING_Y + WHITE_H - 6}
+                fontSize={9}
+                fill={focused ? 'var(--focus)' : '#7a7f8b'}
+                textAnchor="middle"
+                fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
+                fontWeight={focused ? 700 : 400}
+              >
+                {key.note.pitchClass}
+                {key.note.octave}
+              </text>
+            )}
           </g>
         );
       })}
 
       {blackKeys.map((key, i) => {
         const x = PADDING_X + key.index * WHITE_W - BLACK_W / 2;
-        const lit = isLit(key);
-        const root = isRoot(key);
-        const focused = isFocused(key);
+        const midi = midiFromNote(key.note);
+        const lit = !inGame && isLit(key);
+        const root = !inGame && isRoot(key);
+        const focused = !inGame && isFocused(key);
+        const mark = inGame ? gameMark(midi) : null;
         return (
           <g
             key={`b-${i}`}
             className="clickable"
             onClick={handle(key)}
-            style={{ cursor: onPickPitchClass ? 'pointer' : 'default' }}
+            style={{ cursor: inGame || onPickPitchClass ? 'pointer' : 'default' }}
           >
             <rect
               x={x}
@@ -185,6 +262,37 @@ export function PianoView({
                     fontWeight={700}
                   >
                     {pcLabels[key.note.pitchClass]}
+                  </text>
+                )}
+              </g>
+            )}
+            {mark && (
+              <g pointerEvents="none">
+                <circle
+                  cx={x + BLACK_W / 2}
+                  cy={PADDING_Y + BLACK_H - 14}
+                  r={8}
+                  fill={
+                    mark === 'correct'
+                      ? 'var(--game-correct)'
+                      : mark === 'wrong'
+                      ? 'var(--game-wrong)'
+                      : 'var(--game-pending)'
+                  }
+                  stroke="#0b0d12"
+                  strokeWidth={1}
+                />
+                {mark === 'wrong' && (
+                  <text
+                    x={x + BLACK_W / 2}
+                    y={PADDING_Y + BLACK_H - 11}
+                    fontSize={8}
+                    fill="#0b0d12"
+                    textAnchor="middle"
+                    fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
+                    fontWeight={700}
+                  >
+                    {checkedByMidi.get(midi)?.actualPC}
                   </text>
                 )}
               </g>
