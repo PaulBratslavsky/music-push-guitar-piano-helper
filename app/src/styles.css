@@ -87,23 +87,42 @@ body {
   gap: 20px;
 }
 
+/* Music routes (library + player) — full viewport width with just
+   enough side padding to keep content off the chrome edges. The
+   header on these routes runs edge-to-edge so the player + saved-
+   loops grid should too. */
+.app-wide {
+  max-width: none;
+  margin: 0;
+  padding: 24px 28px 48px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
 .app-header {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 16px;
-  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: nowrap;
+  padding: 12px 0;
 }
 
 .app-header h1 {
   margin: 0;
   font-size: 22px;
   letter-spacing: 0.2px;
+  flex-shrink: 0;
 }
 
 .app-header .tagline {
   color: var(--text-dim);
   font-size: 13px;
+  /* Truncate cleanly when the row is too tight rather than wrapping
+     buttons to a second line. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .label {

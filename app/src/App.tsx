@@ -16,8 +16,58 @@ import { midiFromNote, notesAscending } from './theory/notes';
 import type { DiatonicChord } from './theory/diatonic';
 import { SheetMusicView } from './instruments/notation/SheetMusicView';
 import { TabView } from './instruments/notation/TabView';
+import { useRoute, navigate } from './music/useHashRoute';
+import { LibraryPage } from './music/LibraryPage';
+import { PlayerPage } from './music/PlayerPage';
 
 export default function App() {
+  const route = useRoute();
+  if (route.kind === 'library') {
+    return (
+      <div className="app-wide">
+        <Header active="music" />
+        <LibraryPage />
+      </div>
+    );
+  }
+  if (route.kind === 'player') {
+    return (
+      <div className="app-wide">
+        <Header active="music" />
+        <PlayerPage videoId={route.id} />
+      </div>
+    );
+  }
+  return <VisualizerHome />;
+}
+
+function Header({ active }: { active: 'visualizer' | 'music' }) {
+  return (
+    <header className="app-header">
+      <h1>TriadView</h1>
+      <span className="tagline" style={{ flex: 1, minWidth: 0 }} />
+      <nav style={{ display: 'inline-flex', gap: 4, flexShrink: 0 }}>
+        <button
+          type="button"
+          className={`chip${active === 'visualizer' ? ' active' : ''}`}
+          onClick={() => navigate({ kind: 'home' })}
+        >
+          Visualizer
+        </button>
+        <button
+          type="button"
+          className={`chip${active === 'music' ? ' active' : ''}`}
+          onClick={() => navigate({ kind: 'library' })}
+        >
+          Music
+        </button>
+      </nav>
+      <ThemeToggle />
+    </header>
+  );
+}
+
+function VisualizerHome() {
   const appState = useAppState();
   const resolved = useMemo(
     () => resolveSelection(appState.state, appState.previewedChordDegree),
@@ -87,17 +137,26 @@ export default function App() {
     <div className="app">
       <header className="app-header">
         <h1>TriadView</h1>
-        <span className="tagline">
-          For Push producers learning piano &amp; guitar — see the same chord, scale,
-          or note on all three instruments at once.
+        <span className="tagline" style={{ flex: 1, minWidth: 0 }}>
+          See any chord on piano, guitar, bass, and Push — loop YouTube
+          tracks and find their key with the Circle of Fifths.
         </span>
+        <nav style={{ display: 'inline-flex', gap: 4, flexShrink: 0 }}>
+          <button type="button" className="chip active">Visualizer</button>
+          <button
+            type="button"
+            className="chip"
+            onClick={() => navigate({ kind: 'library' })}
+          >
+            Music
+          </button>
+        </nav>
         <ThemeToggle />
         <button
           type="button"
           className="chip"
           onClick={appState.toggleAudio}
           title={appState.audioMuted ? 'Unmute audio' : 'Mute audio'}
-          style={{ marginLeft: 'auto' }}
         >
           {appState.audioMuted ? '🔇 muted' : '🔊 sound'}
         </button>
